@@ -1,8 +1,33 @@
 #pragma once
 #include "ints.h"
 
-
 ///// string utilities: /////
+
+inline u32 str_len (const char* s)
+{
+    for (u32 i = 0; ; i++)
+        if (!s[i]) return i;
+}
+
+inline void str_copy (char* dst, const char* src)
+{
+    while (*src)
+        *dst++ = *src++;
+}
+
+u32 str_copy_cap (char* dst, u32 cap, const char* src);
+
+
+
+///// memory utilities /////
+
+void mem_copy (void* dst, void* src, u32 size);
+void mem_clear (void* dst, u32 size);
+void mem_fill (void* dst, u32 size, u8 with);
+
+
+
+///// string parsing and formatting ////
 
 /// convert integer to string
 #define ITOA_SIZE 32
