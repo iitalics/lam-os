@@ -3,3 +3,4 @@ os-*.bin
 *~
 \#*\#
 .*.sw?
+.dir-locals.el
