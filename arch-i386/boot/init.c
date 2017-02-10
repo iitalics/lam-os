@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include <misc/misc.h>
 extern void spin_loop ();
 
 #define VGA_W     80
@@ -10,6 +11,15 @@ static inline uint16_t vga_c (char c, int fg, int bg)
     return c | (fg << 8) | (bg << 12);
 }
 
+static int vga_print_at (const char* str, int r, int c)
+{
+    int i;
+    for (i = 0; str[i]; i++) {
+        VGA[(c + i) + r * VGA_W] = vga_c(str[i], 11, 0);
+    }
+    return c + i;
+}
+
 void kernel_init_0 (char* multiboot_info_ptr)
 {
     (void) multiboot_info_ptr;
@@ -19,8 +29,11 @@ void kernel_init_0 (char* multiboot_info_ptr)
             VGA[x + y * VGA_W] = 0;
     }
 
-    const char* const hello = "Hello, world";
-    for (int i = 0; hello[i]; i++) {
-        VGA[(1 + i) + 1 * VGA_W] = vga_c(hello[i], 11, 0);
-    }
+    int r = 1;
+    int c = 1;
+    c = vga_print_at("Hello, ", r, c);
+    char buf[ITOA_SIZE];
+    itoa(buf, 12345, 10);
+    c = vga_print_at(buf, r, c);
+    c = vga_print_at("!", r, c);
 }
