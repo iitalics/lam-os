@@ -18,8 +18,8 @@ img=os-$(arch).bin
 include $(arch-dir)/settings.make
 include $(gen-dir)/settings.make
 export cc=$(cc-base) -std=c99
-export as=$(as-base) -Wall
-export ld=$(cc-base)
+export as=$(as-base)
+export ld=$(cc-base) -nostdlib
 export ar
 
 # build and library directories
@@ -59,20 +59,44 @@ $(build-dir)/lib%.a: dir=$(wildcard $(arch-dir)/$(lib) $(gen-dir)/$(lib))
 $(build-dir)/lib%.a: objdir=$(@:$(build-dir)/lib%.a=$(build-dir)/%)
 $(build-dir)/lib%.a: never-satisfied
 	@ echo "== building: $(lib) =="
-	@ TARG=../../$@ OBJDIR=../../$(objdir) LIBNAME=$(lib) \
-			make --no-print-directory -f ../../library.make -C $(dir) \
-
+	TARG=../../$@ OBJDIR=../../$(objdir) LIBNAME=$(lib) \
+			make -f ../../library.make -C $(dir) ../../$@
 
 # linker
 link-script=$(arch-dir)/link.x
-#ifeq ($(wildcard $(link-script)),)
-#	err:=$(error no link script $(link-script))
-#endif
+ifeq ($(wildcard $(link-script)),)
+	err:=$(error no link script $(link-script))
+endif
 
 $(img): $(archives)
 	@ echo
-	@ echo BUILDING IMAGE $(img)
-	@	$(ld) $(archives) -o $@
+	@ echo "=> BUILDING IMAGE $(img) <="
+	@	$(ld) -T $(link-script) $(ldflags) $(archives) -o $@
+
+# emulator
+emulator?=qemu
+emu_memory?=128M
+ifeq ($(emulator),qemu)
+	emulate=qemu-system-i386 -kernel
+else
+	err:=$(error unknown emulator "$(emulator)")
+endif
+.PHONY: emu
+emu: mb-check all
+	@echo "running emulator..."
+	$(emulate) $(img)
+
+# multiboot format check
+.PHONY: mb-check
+ifeq ($(arch),i386)
+mb-check: $(img)
+	@if ! grub-file --is-x86-multiboot $(img); then \
+		echo "ERROR: image ($(img)) has invalid multiboot header"; \
+		exit 2; \
+	else echo "valid multiboot header"; fi
+else
+mb-check:
+endif
 
 # clean rules
 .PHONY: clean
