@@ -19,6 +19,7 @@ static int parse_fmt (const char** fmt_ptr)
         case 'd': kind = FMT_DEC; break;
         case 'x': kind = FMT_HEX; break;
         case 'p': kind = FMT_PTR; break;
+        case '\0': fmt--; break;
         default: break;
         }
     }
