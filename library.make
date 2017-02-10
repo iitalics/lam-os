@@ -3,13 +3,13 @@ srcs=$(wildcard *.c *.s)
 objs=$(srcs:%=$(OBJDIR)/%.o)
 
 $(TARG): $(objs)
-	@ echo "ar  " lib$(LIBNAME)
+	@ echo "[ar]  " lib$(LIBNAME)
 	@ $(ar) rcs $(TARG) $(objs)
 
 $(OBJDIR)/%.c.o: %.c
-	@ echo "cc  " $<
+	@ echo "[cc]  " $<
 	@ $(cc) $(cflags) $< -c -o $@
 
 $(OBJDIR)/%.s.o: %.s
-	@ echo "asm " $<
+	@ echo "[asm] " $<
 	@ $(as) $(asflags) $< -c -o $@

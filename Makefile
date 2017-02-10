@@ -1,7 +1,7 @@
 
 # libraries
 libraries=
-libraries+= boot
+libraries+= misc boot
 
 # architecture
 arch?=i386
@@ -17,7 +17,7 @@ img=os-$(arch).bin
 # load compiler settings
 include $(arch-dir)/settings.make
 include $(gen-dir)/settings.make
-export cc=$(cc-base) -std=c99
+export cc=$(cc-base) -std=c99  -I../../$(arch-dir) -I../../$(gen-dir)
 export as=$(as-base)
 export ld=$(cc-base) -nostdlib
 export ar
@@ -59,7 +59,7 @@ $(build-dir)/lib%.a: dir=$(wildcard $(arch-dir)/$(lib) $(gen-dir)/$(lib))
 $(build-dir)/lib%.a: objdir=$(@:$(build-dir)/lib%.a=$(build-dir)/%)
 $(build-dir)/lib%.a: never-satisfied
 	@ echo "== building: $(lib) =="
-	TARG=../../$@ OBJDIR=../../$(objdir) LIBNAME=$(lib) \
+	@ TARG=../../$@ OBJDIR=../../$(objdir) LIBNAME=$(lib) \
 			make -f ../../library.make -C $(dir) ../../$@
 
 # linker
@@ -71,7 +71,7 @@ endif
 $(img): $(archives)
 	@ echo
 	@ echo "=> BUILDING IMAGE $(img) <="
-	@	$(ld) -T $(link-script) $(ldflags) $(archives) -o $@
+	@ $(ld) -T $(link-script) $(ldflags) -Wl,-\( $(archives) -Wl,-\) -o $@
 
 # emulator
 emulator?=qemu
