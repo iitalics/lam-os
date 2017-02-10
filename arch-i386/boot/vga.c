@@ -14,8 +14,20 @@ void vga_init ()
 
 void vga_linebreak ()
 {
-    vga_col = 0;
-    vga_row++;
+    if (vga_row == VGA_H - 1) {
+        for (u32 y = 0; y < VGA_H - 1; y++) {
+            mem_copy((void*) &VGA[y * VGA_W],
+                     (void*) &VGA[(y + 1) * VGA_W],
+                     VGA_W);
+        }
+        for (int i = 0; i < VGA_W; i++)
+            VGA[i + (VGA_H - 1) * VGA_W] = vga_mod | ' ';
+        vga_col = 0;
+    }
+    else {
+        vga_row++;
+        vga_col = 0;
+    }
 }
 
 void vga_print (char* str)
@@ -27,10 +39,9 @@ void vga_print (char* str)
         }
 
         VGA[vga_row * VGA_W + vga_col] = vga_mod | c;
-        if (vga_col == VGA_W - 1)
+        vga_col++;
+        if (vga_col == VGA_W)
             vga_linebreak();
-        else
-            vga_col++;
     }
 }
 

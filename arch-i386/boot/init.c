@@ -1,16 +1,16 @@
 #include <stdint.h>
 #include "vga.h"
 #include <misc/misc.h>
+#include <limits.h>
 
 void kernel_init_0 (char* multiboot_info_ptr)
 {
     (void) multiboot_info_ptr;
 
     vga_init();
+    writef_output = vga_print;
 
-    char buffer[32];
-    set_writef_output_buffer(buffer, sizeof buffer);
-    writef("The answer is {d}, you are {}!",
-           42, "correct");
-    vga_print(buffer);
+    for (u32 i = 0; i < 100; i++) {
+        writef("{d}\n", i);
+    }
 }
