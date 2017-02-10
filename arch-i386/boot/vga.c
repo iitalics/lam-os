@@ -1,9 +1,9 @@
 #include "vga.h"
 #include <misc/misc.h>
 
-static int vga_row;
-static int vga_col;
-static uint16_t vga_mod;
+static u32 vga_row;
+static u32 vga_col;
+static u16 vga_mod;
 
 void vga_init ()
 {
@@ -12,7 +12,7 @@ void vga_init ()
     vga_clear();
 }
 
-static void vga_linebreak ()
+void vga_linebreak ()
 {
     vga_col = 0;
     vga_row++;
@@ -21,10 +21,12 @@ static void vga_linebreak ()
 void vga_print (char* str)
 {
     for (char c; (c = *str); str++) {
-        if (c == '\n')
+        if (c == '\n') {
             vga_linebreak();
-        else
-            VGA[vga_row * VGA_W + vga_col] = vga_mod | c;
+            continue;
+        }
+
+        VGA[vga_row * VGA_W + vga_col] = vga_mod | c;
         if (vga_col == VGA_W - 1)
             vga_linebreak();
         else
@@ -34,17 +36,17 @@ void vga_print (char* str)
 
 void vga_clear ()
 {
-    for (int i = 0; i < (VGA_W * VGA_H); i++)
+    for (u32 i = 0; i < (VGA_W * VGA_H); i++)
         VGA[i] = vga_mod | ' ';
 }
 
-void vga_set_style (int fg, int bg)
+void vga_set_style (u32 fg, u32 bg)
 {
     vga_mod = ((fg & 0xf) << 8)
         | ((bg & 7) << 12);
 }
 
-void vga_move_to (int r, int c)
+void vga_move_to (u32 r, u32 c)
 {
     vga_row = r;
     vga_col = c;
