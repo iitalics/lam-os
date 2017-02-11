@@ -51,7 +51,7 @@ find-lib-%: never-satisfied
 $(build-dir):
 	mkdir $@
 $(build-dir)/%:
-	mkdir $@
+	@	mkdir $@
 
 # build libraries
 $(build-dir)/lib%.a: lib=$(@:$(build-dir)/lib%.a=%)
@@ -60,7 +60,7 @@ $(build-dir)/lib%.a: objdir=$(@:$(build-dir)/lib%.a=$(build-dir)/%)
 $(build-dir)/lib%.a: never-satisfied
 	@ echo "== building: $(lib) =="
 	@ TARG=../../$@ OBJDIR=../../$(objdir) LIBNAME=$(lib) \
-			make -f ../../library.make -C $(dir) ../../$@
+			make --no-print-directory -f ../../library.make -C $(dir) ../../$@
 
 # linker
 link-script=$(arch-dir)/link.x
