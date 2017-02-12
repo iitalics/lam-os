@@ -7,6 +7,7 @@ void (*writef_output) (char*);
 #define FMT_DEC            2
 #define FMT_HEX            3
 #define FMT_PTR            4
+#define FMT_CUST           5
 static int parse_fmt (const char** fmt_ptr)
 {
     const char* fmt = *fmt_ptr;
@@ -19,6 +20,7 @@ static int parse_fmt (const char** fmt_ptr)
         case 'd': kind = FMT_DEC; break;
         case 'x': kind = FMT_HEX; break;
         case 'p': kind = FMT_PTR; break;
+        case '?': kind = FMT_CUST; break;
         case '\0': fmt--; goto fin;
         default: break;
         }
@@ -63,6 +65,14 @@ void writef (const char* fmt, ...)
                 s = va_arg(args, char*);
                 writef_output(s);
                 break;
+
+            case FMT_CUST:
+                {
+                    void (*writer)(void*) = va_arg(args, void*);
+                    void* p = va_arg(args, void*);
+                    writer(p);
+                    break;
+                }
 
             default:
             case FMT_PTR:
