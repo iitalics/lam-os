@@ -26,8 +26,8 @@ _start:
   pushl %ebx
 
   call kernel_init_0
-  cli
-1:  hlt
+1:  cli
+  hlt
   jmp 1b
 
 

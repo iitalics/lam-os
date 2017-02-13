@@ -31,3 +31,12 @@ struct multiboot_header {
     // [10] if flags & 0x400
     u32 apm_table;
 };
+
+struct multiboot_mmap {
+    u32 size;
+    u32 base_addr_lo;
+    u32 base_addr_hi;
+    u32 length_lo;
+    u32 length_hi;
+    u32 type;
+};
