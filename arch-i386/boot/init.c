@@ -66,11 +66,19 @@ void kernel_init_0 (const struct multiboot_header* mb_header)
                (uptr) mb_header->drives_addr);
     }
     if (flags & 0x200) {
-        writef("  boot loader:   {xu}\n",
-               mb_header->boot_loader_name);
+        writef("  boot loader:   \"{}\"\n",
+               (const char*) mb_header->boot_loader_name);
     }
 }
 
+static void memory_add_avail_ram(char* addr, u32 len)
+{
+    const int M = 1024 * 1024;
+    writef("    Available RAM: {du}.{du}M @ {p}\n",
+           len / M,
+           (len * 10 / M) % 10,
+           addr);
+}
 
 void kernel_mmaps (u32 addr, u32 length)
 {
@@ -79,24 +87,14 @@ void kernel_mmaps (u32 addr, u32 length)
         struct multiboot_mmap* mmap = (void*) (addr + pos);
         pos += mmap->size + sizeof(u32);
 
-        if (mmap->type == 1)
-            vga_set_style(10, 0);
-        else
-            vga_set_style(4, 0);
-
-        writef("    entry #{d}    {}\n",
-               i, (mmap->type == 1) ? "avail" : "reserved");
-
-        if (mmap->type == 1)
-            vga_set_style(7, 0);
-        else
-            vga_set_style(8, 0);
-
-        writef("      base = {p}\n"
-               "      length = {du}K = {du}M\n",
-               (u32*) mmap->base_addr_lo,
-               mmap->length_lo / 1024,
-               mmap->length_lo / (1024 * 1024));
+        if (mmap->type == 1
+            // 32 bit address only
+            && mmap->base_addr_hi == 0
+            && mmap->length_hi == 0
+            // don't register the zero page
+            && mmap->base_addr_lo != 0) {
+            memory_add_avail_ram((void*)mmap->base_addr_lo, mmap->length_lo);
+        }
     }
     vga_set_style(7, 0);
 }
