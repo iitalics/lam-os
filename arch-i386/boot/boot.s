@@ -22,9 +22,8 @@ stack_top:
 
 _start:
   mov $stack_top, %esp
-  mov %ebx, %eax
-  pushl %eax
-/*  mov %ebx, multiboot_info_ptr */
+  mov %ebx, multiboot_info_ptr
+  pushl %ebx
 
   call kernel_init_0
   cli
