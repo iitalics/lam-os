@@ -82,45 +82,51 @@ void mem_clear (void* dst, u32 size)
 #define ITOA_SIZE 32
 u32 itoa (char* out, i32 n, u32 base)
 {
-    u32 tot = 0;
     if (n < 0) {
         *out++ = '-';
-        n = -n;
-        tot++;
+        return 1 + itoau(out, -n, base);
     }
-
-    u32 len = 0;
-    {
-        i32 k = 1;
-        do { len++; k *= base; } while (k <= n);
+    else {
+        return itoau(out, n, base);
     }
-    out[len] = '\0';
-    tot += len;
+}
+u32 itoau (char* out, u32 n, u32 base)
+{
+    char* start = out;
 
+    char tmp[16];
+    u32 idx = sizeof tmp;
     do {
-        i32 dig = n % base;
+        int dig = n % base;
         if (dig >= 10)
-            out[--len] = 'a' + dig - 10;
+            tmp[--idx] = dig - 10 + 'a';
         else
-            out[--len] = '0' + dig;
+            tmp[--idx] = dig + '0';
+
         n = n / base;
     } while (n != 0);
-    return tot;
+
+    while (idx < sizeof tmp)
+        *out++ = tmp[idx++];
+
+    *out = '\0';
+    return (u32) (out - start);
 }
 
 /// convert string to integer
 i32 atoi (const char* in, char** new_pos, u32 base)
 {
-    while (*in == '0')
+    while (*in == ' ')
         in++;
 
-    i32 sign = 1;
-    if (*in == '-') {
-        sign = -1;
-        in++;
-    }
-
-    i32 acc = 0;
+    if (*in == '-')
+        return -atoiu(in + 1, new_pos, base);
+    else
+        return atoiu(in + 1, new_pos, base);
+}
+u32 atoiu (const char* in, char** new_pos, u32 base)
+{
+    u32 acc = 0;
     for (;;) {
         u32 dig;
         if (*in >= '0' && *in <= '9')
@@ -137,5 +143,5 @@ i32 atoi (const char* in, char** new_pos, u32 base)
 
     if (new_pos)
         *new_pos = (char*) in;
-    return acc * sign;
+    return acc;
 }

@@ -32,15 +32,18 @@ void mem_fill (void* dst, u32 size, u8 with);
 /// convert integer to string
 #define ITOA_SIZE 32
 u32 itoa (char* out, i32 n, u32 base);
+u32 itoau (char* out, u32 n, u32 base);
 
 /// convert string to integer
 i32 atoi (const char* in, char** new_pos, u32 base);
+u32 atoiu (const char* in, char** new_pos, u32 base);
 
 /// write formatted text to stream
 ///   {}  = string
 ///   {d} = decimal
 ///   {x} = hexidecimal
 ///   {p} = pointer
+///   {*u} = unsigned
 void writef (const char* fmt, ...);
 
 /// stream function for writef

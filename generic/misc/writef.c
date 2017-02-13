@@ -5,9 +5,10 @@ void (*writef_output) (char*);
 
 #define FMT_STR            1
 #define FMT_DEC            2
-#define FMT_HEX            3
-#define FMT_PTR            4
-#define FMT_CUST           5
+#define FMT_HEX            4
+#define FMT_PTR            8
+#define FMT_CUST           16
+#define FMT_UNSIGN         32
 static int parse_fmt (const char** fmt_ptr)
 {
     const char* fmt = *fmt_ptr;
@@ -17,11 +18,13 @@ static int parse_fmt (const char** fmt_ptr)
     int kind = FMT_STR;
     for (; *fmt != '}'; fmt++) {
         switch (*fmt) {
+        case 's': kind = FMT_DEC; break;
         case 'd': kind = FMT_DEC; break;
         case 'x': kind = FMT_HEX; break;
         case 'p': kind = FMT_PTR; break;
         case '?': kind = FMT_CUST; break;
-        case '\0': fmt--; goto fin;
+        case 'u': kind |= FMT_UNSIGN; break;
+        case '\0': *fmt_ptr = fmt; goto fin;
         default: break;
         }
     }
@@ -49,16 +52,25 @@ void writef (const char* fmt, ...)
     while (*fmt) {
         if (*fmt == '{') {
             FLUSH_BUF;
-            i32 k; char* s;
+            i32 k; u32 u; char* s;
             switch (parse_fmt(&fmt)) {
             case FMT_HEX:
                 k = va_arg(args, i32);
                 buf_pos = itoa(buf, k, 16);
                 break;
-
             case FMT_DEC:
                 k = va_arg(args, i32);
                 buf_pos = itoa(buf, k, 10);
+                break;
+
+            case FMT_HEX | FMT_UNSIGN:
+                u = va_arg(args, u32);
+                buf_pos = itoau(buf, u, 16);
+                break;
+            case FMT_DEC | FMT_UNSIGN:
+            case FMT_UNSIGN:
+                u = va_arg(args, u32);
+                buf_pos = itoau(buf, u, 10);
                 break;
 
             case FMT_STR:
