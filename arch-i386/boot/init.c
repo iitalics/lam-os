@@ -2,6 +2,7 @@
 #include <misc/misc.h>
 #include "vga.h"
 #include "multiboot.h"
+#include <kernel/kernel.h>
 
 // render integer in binary; for {?} format
 static void write_binary16 (uptr x) {
@@ -71,7 +72,6 @@ void kernel_init_0 (const struct multiboot_header* mb_header)
         writef("  Command line:  \"{}\"\n",
                (const char*) mb_header->cmdline);
     }
-
     if (flags & 0x1) {
         // 0x27f -> 0x1fb80
         writef("  Lower memory:  {?}\n"
@@ -102,4 +102,6 @@ void kernel_init_0 (const struct multiboot_header* mb_header)
     /*            mb_header->drives_length, */
     /*            (uptr) mb_header->drives_addr); */
     /* } */
+
+    kernel_panicf("init routine ended early.");
 }

@@ -1,7 +1,7 @@
 
 # libraries
 libraries=
-libraries+= misc boot
+libraries+= misc boot kernel
 
 # architecture
 arch?=i386
@@ -55,7 +55,7 @@ $(build-dir)/%:
 
 # build libraries
 $(build-dir)/lib%.a: lib=$(@:$(build-dir)/lib%.a=%)
-$(build-dir)/lib%.a: dir=$(wildcard $(arch-dir)/$(lib) $(gen-dir)/$(lib))
+$(build-dir)/lib%.a: dir=$(firstword $(wildcard $(arch-dir)/$(lib) $(gen-dir)/$(lib)))
 $(build-dir)/lib%.a: objdir=$(@:$(build-dir)/lib%.a=$(build-dir)/%)
 $(build-dir)/lib%.a: never-satisfied
 	@ echo "== building: $(lib) =="
