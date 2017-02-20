@@ -3,6 +3,7 @@
 #include "vga.h"
 #include "multiboot.h"
 #include <kernel/kernel.h>
+#include <memory/memory.h>
 
 // render integer in binary; for {?} format
 static void write_binary16 (uptr x) {
@@ -25,14 +26,6 @@ static void write_mb (uptr x) {
 }
 
 
-
-static void memory_add_avail_ram(char* addr, u32 len)
-{
-    writef("    Found RAM: {?} @ {p}\n",
-           write_mb, len,
-           addr);
-}
-
 void kernel_mmaps (u32 addr, u32 length)
 {
     u32 pos = 0;
@@ -40,14 +33,18 @@ void kernel_mmaps (u32 addr, u32 length)
         struct multiboot_mmap* mmap = (void*) (addr + pos);
         pos += mmap->size + sizeof(u32);
 
-        if (mmap->type == 1
+        int avail = mmap->type == 1
             // 32 bit address only
             && mmap->base_addr_hi == 0
             && mmap->length_hi == 0
             // don't register the zero page
-            && mmap->base_addr_lo != 0) {
-            memory_add_avail_ram((void*)mmap->base_addr_lo, mmap->length_lo);
-        }
+            && mmap->base_addr_lo != 0;
+
+        if (!avail)
+            continue;
+
+        memory_ram_avail(mmap->base_addr_lo,
+                         mmap->base_addr_lo + mmap->length_lo);
     }
 }
 
@@ -102,6 +99,4 @@ void kernel_init_0 (const struct multiboot_header* mb_header)
     /*            mb_header->drives_length, */
     /*            (uptr) mb_header->drives_addr); */
     /* } */
-
-    kernel_panicf("init routine ended early.");
 }

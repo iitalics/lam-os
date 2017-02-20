@@ -1,7 +1,7 @@
 
 # libraries
 libraries=
-libraries+= misc boot kernel
+libraries+= misc boot kernel memory
 
 # architecture
 arch?=i386
