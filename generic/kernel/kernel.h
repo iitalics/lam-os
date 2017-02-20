@@ -4,7 +4,7 @@
 extern char* kernel_panic_str;
 extern u32 kernel_panic_str_cap;
 
-void kernel_panic ();
+void kernel_panic () __attribute__((noreturn));
 
 #define kernel_panicf(...) do { \
     set_writef_output_buffer(kernel_panic_str, \
