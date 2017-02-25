@@ -16,19 +16,17 @@ int panic_on_oom = 1;
 # define mem_debugf(...)
 #endif
 
-// align to bytes
-#define ALIGN_TO        8
 // ceiling / floor alignment
 static inline u32 align_up (u32 k)
 {
-    if (k & (ALIGN_TO - 1))
-        return 1 + (k | (ALIGN_TO - 1));
+    if (k & (KALLOC_ALIGN_TO - 1))
+        return 1 + (k | (KALLOC_ALIGN_TO - 1));
     else
         return k;
 }
 static inline u32 align_down (u32 k)
 {
-    return k & ~(ALIGN_TO - 1);
+    return k & ~(KALLOC_ALIGN_TO - 1);
 }
 
 
@@ -144,7 +142,7 @@ void k_free (void* ptr)
 static inline u16 bin_size_to_ix (uptr size)
 {
     if (size < bin_size[BINS_UNSORTED]) {
-        return (size - FIRST_BIN_SIZE) / ALIGN_TO;
+        return (size - FIRST_BIN_SIZE) / KALLOC_ALIGN_TO;
     }
     // TODO: binary search?
     for (u16 i = BIN_COUNT - 1; ; i--) {
