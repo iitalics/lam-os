@@ -70,8 +70,11 @@ static struct chunk_free* bins[BIN_COUNT] = {0};
 static inline u16         bin_size_to_ix (uptr size);
 static inline uptr*       chunk_tail_width_ptr (void* chunk);
 static void               init_empty_chunk (void* ptr, uptr width);
-static struct chunk_used* use_chunk (struct chunk_free* cf, u16 ix);
+static struct chunk_used* remove_chunk_ix (struct chunk_free* cf, u16 ix);
+static struct chunk_used* remove_chunk (struct chunk_free* cf);
 static inline int         should_split (uptr found_width, uptr targ_width);
+static int                is_first_chunk (void* chunk);
+static int                is_last_chunk (void* chunk);
 
 // allocate arbitrary chunk
 void* k_alloc (uptr size)
@@ -102,7 +105,7 @@ void* k_alloc (uptr size)
     mem_debugf("found free chunk; ix={du}\n", (u32) ix);
 
     uptr found_width = cf->width;
-    struct chunk_used* cu = use_chunk(cf, ix);
+    struct chunk_used* cu = remove_chunk_ix(cf, ix);
 
     if (should_split(found_width, targ_width)) {
         uptr excess = found_width - targ_width;
@@ -124,19 +127,51 @@ void k_free (void* ptr)
         return;
 
     struct chunk_used* cu = (void*) ((uptr) ptr - sizeof(uptr));
-    if (cu->width != (1 | *chunk_tail_width_ptr(cu))) {
-        kernel_panicf("double free: {p}\n", ptr);
-    }
 
+    // NOTE: the following two checks could be omitted if we want
+    //       to go balls deep and assume we'll never do anything wrong,
+    //       but maybe a kernel panic is a better idea
+    // check that the chunk ptr is properly aligned
     if ((uptr) cu != align_down((uptr) cu))
         kernel_panicf("free unaligned ptr: {p}\n", ptr);
+    // use the second 'width' marker at the end as a sort of
+    // checksum/magic number
+    if (cu->width != (1 | *chunk_tail_width_ptr(cu)))
+        kernel_panicf("double free: {p}\n", ptr);
 
-    mem_debugf("freeing chunk width={du}\n",
-               (u32) cu->width & ~1);
+    uptr width = cu->width - 1;
+    mem_debugf("freeing chunk; width={du}\n", (u32) width);
 
-    // TODO: join with left & right chunks
+    // TODO: heuristic to not always join with adjacent chunks because
+    //       creating large free chunks may cause slow allocations
 
-    init_empty_chunk(cu, cu->width & ~1);
+    void* final_chunk = cu;
+
+    // join with left chunk if free
+    if (!is_first_chunk(cu)) {
+        u32 prev_chunk_width = ((uptr*) cu)[-1];
+        struct chunk_free* prev_chunk = (void*) ((uptr) cu - prev_chunk_width);
+        if ((prev_chunk->width & 1) == 0) {
+            width += prev_chunk_width;
+            final_chunk = prev_chunk;
+            remove_chunk(prev_chunk);
+            mem_debugf("join left {p}; width={du}\n",
+                       prev_chunk, width);
+        }
+    }
+
+    // join with right chunk if free
+    if (!is_last_chunk(cu)) {
+        struct chunk_free* next_chunk = (void*) ((uptr) cu + cu->width - 1);
+        if ((next_chunk->width & 1) == 0) {
+            width += next_chunk->width;
+            remove_chunk(next_chunk);
+            mem_debugf("join right {p}; width={du}\n",
+                       next_chunk, width);
+        }
+    }
+
+    init_empty_chunk(final_chunk, width);
 }
 
 static inline u16 bin_size_to_ix (uptr size)
@@ -172,7 +207,7 @@ static void init_empty_chunk (void* ptr, uptr width)
                ptr, (u32) ix);
 }
 
-static struct chunk_used* use_chunk (struct chunk_free* cf, u16 ix)
+static struct chunk_used* remove_chunk_ix (struct chunk_free* cf, u16 ix)
 {
     if (cf->bin_prev == NIL) {
         bins[ix] = cf->bin_next;
@@ -186,6 +221,11 @@ static struct chunk_used* use_chunk (struct chunk_free* cf, u16 ix)
     }
     cf->width |= 1;
     return (struct chunk_used*) cf;
+}
+
+static struct chunk_used* remove_chunk (struct chunk_free* cf)
+{
+    return remove_chunk_ix(cf, bin_size_to_ix(cf->width - OVERHEAD));
 }
 
 static inline int should_split (uptr found_width, uptr targ_width)
@@ -213,6 +253,25 @@ struct mem_reg {
 // available memory regions
 #define MAX_AVAIL_REGIONS   16
 static struct mem_reg avail[MAX_AVAIL_REGIONS] = {{0}};
+
+static int is_first_chunk (void* chunk)
+{
+    for (u32 i = 0; i < MAX_AVAIL_REGIONS; i++) {
+        if (avail[i].in_use && avail[i].start == (uptr) chunk)
+            return 1;
+    }
+    return 0;
+}
+static int is_last_chunk (void* chunk)
+{
+    u32 width = ((struct chunk_free*) chunk)->width & ~1;
+    uptr end = width + (uptr) chunk;
+    for (u32 i = 0; i < MAX_AVAIL_REGIONS; i++) {
+        if (avail[i].in_use && avail[i].end == end)
+            return 1;
+    }
+    return 0;
+}
 
 static void init_new_region (struct mem_reg* region, uptr start, uptr end)
 {

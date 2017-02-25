@@ -100,22 +100,32 @@ void kernel_init_0 (const struct multiboot_header* mb_header)
     /*            (uptr) mb_header->drives_addr); */
     /* } */
 
-    char* strings[4] = {0};
+#define N 5
+    char* strings[N] = {0};
     panic_on_oom = 1;
-    vga_set_style(2 | 8, 0);
 
-    for (i32 i = 0; i < 4; i++) {
-        strings[i] = k_alloc(15);
-        writef("strings[{d}] = {p}\n",
-               i, strings[i]);
+    vga_set_style(2 | 8, 0);
+    for (int i = 0; i < N; i++) {
+        strings[i] = k_alloc(15 + i * 3);
+        writef("strings[{du}] = {p}\n", i, strings[i]);
     }
-    writef("----------\n");
-    for (i32 i = 0; i < 4; i++) {
+
+    for (int i = 0; i < N; i++)
         k_free(strings[i]);
+
+    vga_set_style(6 | 8, 0);
+    for (int i = 0; i < N; i++) {
+        strings[i] = k_alloc(32 + i * 3);
+        writef("strings[{du}] = {p}\n", i, strings[i]);
     }
-    for (i32 i = 0; i < 4; i++) {
-        strings[i] = k_alloc(15);
-        writef("strings[{d}] = {p}\n",
-               i, strings[i]);
+
+    for (int i = 0; i < N; i++)
+        k_free(strings[i]);
+
+    vga_set_style(3 | 8, 0);
+    for (int i = 0; i < N; i++) {
+        strings[i] = k_alloc(8);
+        writef("strings[{du}] = {p}\n", i, strings[i]);
     }
+#undef N
 }
