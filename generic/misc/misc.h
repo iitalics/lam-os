@@ -13,6 +13,7 @@ inline void str_copy (char* dst, const char* src)
 {
     while (*src)
         *dst++ = *src++;
+    *dst = '\0';
 }
 
 u32 str_copy_cap (char* dst, u32 cap, const char* src);
