@@ -1,7 +1,7 @@
 
 # libraries
 libraries=
-libraries+= misc boot kernel memory
+libraries+= misc boot kernel memory vm-gc
 
 # architecture
 arch?=i386
