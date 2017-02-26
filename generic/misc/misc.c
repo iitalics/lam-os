@@ -4,8 +4,9 @@
 u32 str_copy_cap (char* dst, u32 cap, const char* src)
 {
     u32 i;
-    for (i = 0; src[i] && i < cap; i++)
+    for (i = 0; src[i] && i < (cap - 1); i++)
         dst[i] = src[i];
+    dst[i] = '\0';
     return i;
 }
 
