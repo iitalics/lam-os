@@ -36,23 +36,27 @@ static inline u32 align_down (u32 k)
 
 struct chunk_free {
     uptr width;
+    void* in_mem_prev;
     struct chunk_free* bin_next;
     struct chunk_free* bin_prev;
 };
 struct chunk_used {
-    uptr width; // LSB is set to 1 to denote 'in-use'
+    uptr width;
+    void* in_mem_prev;
     char data[0];
 };
-#define OVERHEAD   (2 * sizeof(uptr))
 
-/* TODO: make the following architecture specific */
-// how many different bins are there
-#define BIN_COUNT       72
-// how many bins are unsorted
-#define BINS_UNSORTED   48
-// size of first bin
-#define FIRST_BIN_SIZE  8
-// bin sizes
+// chunk flags
+#define CF_FREE       0
+#define CF_USED       1
+#define CF_BOUNDARY   3
+#define CF_OF(c)      ((c)->width & 3)
+#define CF_SET(c,v)   ((c)->width = ((c)->width & ~3) | (v))
+
+#define OVERHEAD   (sizeof(struct chunk_used))
+#define BIN_COUNT          72
+#define BIN_COUNT_UNSORT   48
+#define FIRST_BIN_SIZE     8
 static const uptr bin_size[BIN_COUNT] = {
     // 48 unsorted bins
     FIRST_BIN_SIZE,
@@ -68,13 +72,9 @@ static const uptr bin_size[BIN_COUNT] = {
 static struct chunk_free* bins[BIN_COUNT] = {0};
 
 static inline u16         bin_size_to_ix (uptr size);
-static inline uptr*       chunk_tail_width_ptr (void* chunk);
-static void               init_empty_chunk (void* ptr, uptr width);
-static struct chunk_used* remove_chunk_ix (struct chunk_free* cf, u16 ix);
-static struct chunk_used* remove_chunk (struct chunk_free* cf);
-static inline int         should_split (uptr found_width, uptr targ_width);
-static int                is_first_chunk (void* chunk);
-static int                is_last_chunk (void* chunk);
+static inline int         should_split (uptr outer_width, uptr inner_width);
+static struct chunk_used* claim_chunk (struct chunk_free* cf);
+static void               init_free_chunk (void* ptr, void* prev, uptr width);
 
 // allocate arbitrary chunk
 void* k_alloc (uptr size)
@@ -85,39 +85,42 @@ void* k_alloc (uptr size)
 
     mem_debugf("alloc; size={du}, targ_width={du}, ix={du}\n",
                size, targ_width, (u32) ix);
-    struct chunk_free* cf = NIL;
-    for (; ix < BIN_COUNT; ix++) {
-        cf = bins[ix];
-        while (cf && cf->width < targ_width)
-            cf = cf->bin_next;
 
-        if (cf)
+    struct chunk_free* c_free = NIL;
+    for (; ix < BIN_COUNT; ix++) {
+        c_free = bins[ix];
+        while (c_free && c_free->width < targ_width)
+            c_free = c_free->bin_next;
+
+        if (c_free)
             break;
     }
 
-    if (cf == NIL) {
+    if (c_free == NIL) {
+        // TODO: ask for memory
         if (panic_on_oom)
             kernel_panicf("out of memory in k_alloc()");
         else
             return NIL;
     }
 
-    mem_debugf("found free chunk; ix={du}\n", (u32) ix);
+    mem_debugf("found free chunk {p}; ix={du}\n", c_free, (u32) ix);
 
-    uptr found_width = cf->width;
-    struct chunk_used* cu = remove_chunk_ix(cf, ix);
+    // claim the chunk so that it is no longer in the free bins
+    uptr found_width = c_free->width;
+    struct chunk_used* c_used = claim_chunk(c_free);
 
+    // split it if necessary
     if (should_split(found_width, targ_width)) {
         uptr excess = found_width - targ_width;
-        void* next = targ_width + (void*) cu;
         mem_debugf("  splitting; {du} + {du} = {du}\n",
                    targ_width, excess, found_width);
-        cu->width = targ_width | 1;
-        *chunk_tail_width_ptr(cu) = targ_width;
-        init_empty_chunk(next, excess);
+        init_free_chunk(targ_width + (void*) c_used, c_used, excess);
+        c_used->width = targ_width;
+        CF_SET(c_used, CF_USED);
     }
 
-    return cu->data;
+    return c_used->data;
 }
 
 // free allocated memory
@@ -126,57 +129,53 @@ void k_free (void* ptr)
     if (ptr == NIL)
         return;
 
-    struct chunk_used* cu = (void*) ((uptr) ptr - sizeof(uptr));
+    struct chunk_used* c_used = (void*) ((uptr) ptr - OVERHEAD);
 
     // NOTE: the following two checks could be omitted if we want
     //       to go balls deep and assume we'll never do anything wrong,
     //       but maybe a kernel panic is a better idea
-    // check that the chunk ptr is properly aligned
-    if ((uptr) cu != align_down((uptr) cu))
+    // check that the chunk ptr is properly aligned, and that it is
+    // marked as free.
+    if ((uptr) c_used != align_down((uptr) c_used))
         kernel_panicf("free unaligned ptr: {p}\n", ptr);
-    // use the second 'width' marker at the end as a sort of
-    // checksum/magic number
-    if (cu->width != (1 | *chunk_tail_width_ptr(cu)))
-        kernel_panicf("double free: {p}\n", ptr);
+    if (CF_OF(c_used) != CF_USED)
+        kernel_panicf("corrupt / double free: {p}\n", ptr);
 
-    uptr width = cu->width - 1;
-    mem_debugf("freeing chunk; width={du}\n", (u32) width);
+    uptr width = c_used->width & ~3;
+    mem_debugf("freeing chunk {p}; width={du}\n", c_used, (u32) width);
+
+    struct chunk_free* prev_chunk = c_used->in_mem_prev;
+    struct chunk_free* next_chunk = width + (void*) c_used;
 
     // TODO: heuristic to not always join with adjacent chunks because
     //       creating large free chunks may cause slow allocations
 
-    void* final_chunk = cu;
+    void* final_chunk = c_used;
 
     // join with left chunk if free
-    if (!is_first_chunk(cu)) {
-        u32 prev_chunk_width = ((uptr*) cu)[-1];
-        struct chunk_free* prev_chunk = (void*) ((uptr) cu - prev_chunk_width);
-        if ((prev_chunk->width & 1) == 0) {
-            width += prev_chunk_width;
-            final_chunk = prev_chunk;
-            remove_chunk(prev_chunk);
-            mem_debugf("join left {p}; width={du}\n",
-                       prev_chunk, width);
-        }
+    if (CF_OF(prev_chunk) == CF_FREE) {
+        width += prev_chunk->width;
+        final_chunk = claim_chunk(prev_chunk);
+        mem_debugf("join left {p}; width={du}\n",
+                   prev_chunk, width);
+
+        prev_chunk = prev_chunk->in_mem_prev;
     }
 
     // join with right chunk if free
-    if (!is_last_chunk(cu)) {
-        struct chunk_free* next_chunk = (void*) ((uptr) cu + cu->width - 1);
-        if ((next_chunk->width & 1) == 0) {
-            width += next_chunk->width;
-            remove_chunk(next_chunk);
-            mem_debugf("join right {p}; width={du}\n",
-                       next_chunk, width);
-        }
+    if (CF_OF(next_chunk) == CF_FREE) {
+        width += next_chunk->width;
+        claim_chunk(next_chunk);
+        mem_debugf("join right {p}; width={du}\n",
+                   next_chunk, width);
     }
 
-    init_empty_chunk(final_chunk, width);
+    init_free_chunk(final_chunk, prev_chunk, width);
 }
 
 static inline u16 bin_size_to_ix (uptr size)
 {
-    if (size < bin_size[BINS_UNSORTED]) {
+    if (size < bin_size[BIN_COUNT_UNSORT]) {
         return (size - FIRST_BIN_SIZE) / KALLOC_ALIGN_TO;
     }
     // TODO: binary search?
@@ -186,29 +185,24 @@ static inline u16 bin_size_to_ix (uptr size)
     }
 }
 
-static inline uptr* chunk_tail_width_ptr (void* chunk)
+static void init_free_chunk (void* ptr, void* prev, uptr width)
 {
-    struct chunk_free* cf = chunk;
-    uptr width = cf->width & ~1;
-    return &((uptr*) (width + (uptr) chunk))[-1];
-}
+    struct chunk_free* c_free = ptr;
+    c_free->width = width;
+    c_free->in_mem_prev = prev;
 
-static void init_empty_chunk (void* ptr, uptr width)
-{
-    struct chunk_free* cf = ptr;
-    u16 ix = bin_size_to_ix(width - OVERHEAD);
-    cf->width = width;
-    *chunk_tail_width_ptr(ptr) = width;
     // TODO: insert, sorted.
-    cf->bin_next = bins[ix];
-    cf->bin_prev = NIL;
-    bins[ix] = cf;
-    mem_debugf("new empty chunk {p}; ix={du}\n",
-               ptr, (u32) ix);
+    u16 ix = bin_size_to_ix(width - OVERHEAD);
+    c_free->bin_next = bins[ix];
+    c_free->bin_prev = NIL;
+    bins[ix] = c_free;
+    mem_debugf("new empty chunk {p}; ix={du}, prev {p}\n",
+               ptr, (u32) ix, prev);
 }
 
-static struct chunk_used* remove_chunk_ix (struct chunk_free* cf, u16 ix)
+static struct chunk_used* claim_chunk (struct chunk_free* cf)
 {
+    u16 ix = bin_size_to_ix(cf->width - OVERHEAD);
     if (cf->bin_prev == NIL) {
         bins[ix] = cf->bin_next;
         if (cf->bin_next != NIL)
@@ -221,11 +215,6 @@ static struct chunk_used* remove_chunk_ix (struct chunk_free* cf, u16 ix)
     }
     cf->width |= 1;
     return (struct chunk_used*) cf;
-}
-
-static struct chunk_used* remove_chunk (struct chunk_free* cf)
-{
-    return remove_chunk_ix(cf, bin_size_to_ix(cf->width - OVERHEAD));
 }
 
 static inline int should_split (uptr found_width, uptr targ_width)
@@ -254,34 +243,20 @@ struct mem_reg {
 #define MAX_AVAIL_REGIONS   16
 static struct mem_reg avail[MAX_AVAIL_REGIONS] = {{0}};
 
-static int is_first_chunk (void* chunk)
-{
-    for (u32 i = 0; i < MAX_AVAIL_REGIONS; i++) {
-        if (avail[i].in_use && avail[i].start == (uptr) chunk)
-            return 1;
-    }
-    return 0;
-}
-static int is_last_chunk (void* chunk)
-{
-    u32 width = ((struct chunk_free*) chunk)->width & ~1;
-    uptr end = width + (uptr) chunk;
-    for (u32 i = 0; i < MAX_AVAIL_REGIONS; i++) {
-        if (avail[i].in_use && avail[i].end == end)
-            return 1;
-    }
-    return 0;
-}
-
 static void init_new_region (struct mem_reg* region, uptr start, uptr end)
 {
     region->in_use = 1;
     // align end and start addresses
     region->start = start = align_up(start);
     region->end = end = align_down(end);
-    // register a huge chunk
-    // TODO: split into smaller chunk
-    init_empty_chunk((void*) start, end - start);
+    // TODO: use a few pages at a time, when asked.
+    // create boundary chunks
+    struct chunk_free* bc_left = (void*) start;
+    struct chunk_free* bc_right = (void*) ((uptr) end - sizeof(struct chunk_free));
+    bc_left->width =
+        bc_right->width = sizeof(struct chunk_free) & CF_BOUNDARY;
+    // init middle chunk
+    init_free_chunk(bc_left + 1, bc_left, (uptr) bc_right - (uptr) (bc_left + 1));
 }
 
 // notify memory management of a new region of available RAM
