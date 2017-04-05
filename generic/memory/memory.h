@@ -9,7 +9,10 @@ void memory_ram_avail (uptr start, uptr end);
 extern int panic_on_oom;
 
 // align to?
-#define KALLOC_ALIGN_TO        8
+#define KALLOC_ALIGN_TO 8
+
+// ask kernel for memory permanently
+void* k_ask_permanent (uptr* size_in_out);
 
 // allocate arbitrary chunk
 void* k_alloc (uptr size)

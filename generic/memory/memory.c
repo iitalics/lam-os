@@ -51,7 +51,6 @@ struct chunk_used {
 #define CF_USED       1
 #define CF_BOUNDARY   3
 #define CF_OF(c)      ((c)->width & 3)
-#define CF_SET(c,v)   ((c)->width = ((c)->width & ~3) | (v))
 
 #define OVERHEAD   (sizeof(struct chunk_used))
 #define BIN_COUNT          72
@@ -75,6 +74,7 @@ static inline u16         bin_size_to_ix (uptr size);
 static inline int         should_split (uptr outer_width, uptr inner_width);
 static struct chunk_used* claim_chunk (struct chunk_free* cf);
 static void               init_free_chunk (void* ptr, void* prev, uptr width);
+static struct chunk_free* ask_free_chunk (uptr width);
 
 // allocate arbitrary chunk
 void* k_alloc (uptr size)
@@ -86,25 +86,29 @@ void* k_alloc (uptr size)
     mem_debugf("alloc; size={du}, targ_width={du}, ix={du}\n",
                size, targ_width, (u32) ix);
 
+    // look through the bins
     struct chunk_free* c_free = NIL;
     for (; ix < BIN_COUNT; ix++) {
         c_free = bins[ix];
         while (c_free && c_free->width < targ_width)
             c_free = c_free->bin_next;
-
         if (c_free)
             break;
     }
 
+    // ask for more memory
+    if (c_free == NIL)
+        c_free = ask_free_chunk(targ_width);
+    else
+        mem_debugf("found free chunk {p}; ix={du}\n", c_free, (u32) ix);
+
+    // that didn't work either, so fail.
     if (c_free == NIL) {
-        // TODO: ask for memory
         if (panic_on_oom)
             kernel_panicf("out of memory in k_alloc()");
         else
             return NIL;
     }
-
-    mem_debugf("found free chunk {p}; ix={du}\n", c_free, (u32) ix);
 
     // claim the chunk so that it is no longer in the free bins
     uptr found_width = c_free->width;
@@ -116,8 +120,7 @@ void* k_alloc (uptr size)
         mem_debugf("  splitting; {du} + {du} = {du}\n",
                    targ_width, excess, found_width);
         init_free_chunk(targ_width + (void*) c_used, c_used, excess);
-        c_used->width = targ_width;
-        CF_SET(c_used, CF_USED);
+        c_used->width = targ_width | CF_USED;
     }
 
     return c_used->data;
@@ -185,13 +188,18 @@ static inline u16 bin_size_to_ix (uptr size)
     }
 }
 
+static inline int should_split (uptr found_width, uptr targ_width)
+{
+    return found_width >= targ_width + FIRST_BIN_SIZE + OVERHEAD;
+}
+
 static void init_free_chunk (void* ptr, void* prev, uptr width)
 {
     struct chunk_free* c_free = ptr;
     c_free->width = width;
     c_free->in_mem_prev = prev;
 
-    // TODO: insert, sorted.
+    // TODO: insert sorted.
     u16 ix = bin_size_to_ix(width - OVERHEAD);
     c_free->bin_next = bins[ix];
     c_free->bin_prev = NIL;
@@ -213,15 +221,29 @@ static struct chunk_used* claim_chunk (struct chunk_free* cf)
         if (cf->bin_next != NIL)
             cf->bin_next->bin_prev = cf->bin_prev;
     }
-    cf->width |= 1;
+    cf->width |= CF_USED;
     return (struct chunk_used*) cf;
 }
 
-static inline int should_split (uptr found_width, uptr targ_width)
+static struct chunk_free* ask_free_chunk (uptr width)
 {
-    return found_width >= targ_width + FIRST_BIN_SIZE + OVERHEAD;
-}
+    // ask for memory
+    uptr total_width = width + sizeof(struct chunk_free) * 2;
+    void* ptr = k_ask_permanent(&total_width);
+    if (ptr == NIL)
+        return NIL;
 
+    // creating boundary markers on either side of the newly allocated space
+    struct chunk_used* bnd_left = ptr;
+    struct chunk_used* bnd_right = ptr + total_width - sizeof(struct chunk_free);
+    struct chunk_free* middle = ptr + sizeof(struct chunk_free);
+
+    // set up flags & return it
+    bnd_left->width = sizeof(struct chunk_free) | CF_BOUNDARY;
+    bnd_right->width = sizeof(struct chunk_free) | CF_BOUNDARY;
+    init_free_chunk(middle, bnd_left, total_width - sizeof(struct chunk_free));
+    return middle;
+}
 
 
 
@@ -240,7 +262,7 @@ struct mem_reg {
 };
 
 // available memory regions
-#define MAX_AVAIL_REGIONS   16
+#define MAX_AVAIL_REGIONS   32
 static struct mem_reg avail[MAX_AVAIL_REGIONS] = {{0}};
 
 static void init_new_region (struct mem_reg* region, uptr start, uptr end)
@@ -249,14 +271,23 @@ static void init_new_region (struct mem_reg* region, uptr start, uptr end)
     // align end and start addresses
     region->start = start = align_up(start);
     region->end = end = align_down(end);
-    // TODO: use a few pages at a time, when asked.
-    // create boundary chunks
-    struct chunk_free* bc_left = (void*) start;
-    struct chunk_free* bc_right = (void*) ((uptr) end - sizeof(struct chunk_free));
-    bc_left->width =
-        bc_right->width = sizeof(struct chunk_free) & CF_BOUNDARY;
-    // init middle chunk
-    init_free_chunk(bc_left + 1, bc_left, (uptr) bc_right - (uptr) (bc_left + 1));
+}
+
+void* k_ask_permanent (uptr* size_in_out)
+{
+    uptr size = *size_in_out;
+    if (size & 0xfff)
+        size = (size | 0xfff) + 1;
+
+    for (u32 i = 0; i < MAX_AVAIL_REGIONS; i++) {
+        if (avail[i].in_use && (avail[i].end - avail[i].start) >= size) {
+            void* ptr = (void*) avail[i].start;
+            avail[i].start += size;
+            *size_in_out = size;
+            return ptr;
+        }
+    }
+    return NIL;
 }
 
 // notify memory management of a new region of available RAM
